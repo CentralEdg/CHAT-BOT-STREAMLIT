@@ -1,0 +1,43 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+ENV/
+
+# Archivos de entorno y configuración local
+.env
+*.env
+
+# Archivos de caché y compilados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Archivos generados por Streamlit
+.streamlit/
+
+# Archivos de logs
+*.log
+
+# Datos sensibles o grandes (CSV)
+# *.csv
+# !Demograficos.csv
+# !Padecimientos_Homologados.csv
+# !Preguntas_Secciones_Publico.csv
+# !Resultados.csv
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de dependencias
+pip-wheel-metadata/
+*.egg-info/
+dist/
+build/
+
+# Configuración de VS Code
+.vscode/
