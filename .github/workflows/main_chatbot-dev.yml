@@ -22,7 +22,7 @@ jobs:
       - name: Set up Python version
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       # 🛠️ Local Build Section (Optional)
       # The following section in your workflow is designed to catch build issues early on the client side, before deployment. This can be helpful for debugging and validation. However, if this step significantly increases deployment time and early detection is not critical for your workflow, you may remove this section to streamline the deployment process.
@@ -40,7 +40,6 @@ jobs:
           path: |
             .
             !antenv/
-
       # 🚫 Opting Out of Oryx Build
       # If you prefer to disable the Oryx build process during deployment, follow these steps:
       # 1. Remove the SCM_DO_BUILD_DURING_DEPLOYMENT app setting from your Azure App Service Environment variables.
@@ -63,9 +62,9 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_84C31D01FFD944759E564787DA225AEF }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_421514D52CDB4F8C85E51E1A0857203B }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_7DA9A32AC14B43C2ADD40F8FF0528371 }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_661D0E69B24B476396009D65A552F0E9 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_1EF06503D11749539A0E6762184ABDA2 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_6C2ECB54E74641B9A23D96A23FD8EB6D }}
 
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
@@ -73,4 +72,3 @@ jobs:
         with:
           app-name: 'chatbot-dev'
           slot-name: 'Production'
-          
