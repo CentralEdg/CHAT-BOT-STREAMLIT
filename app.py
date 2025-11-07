@@ -89,7 +89,10 @@ def azure_llm_from_env(temperature: float = 0.2):
 def make_agent(df, llm):
     # Crea un agente de análisis sobre DataFrame unificado
     agent = create_pandas_dataframe_agent(
-        llm, df, verbose=False
+        llm,
+        df,
+        verbose=False,
+        allow_dangerous_code=True  # 👈 necesario desde LangChain 0.2+
     )
     return agent
 
