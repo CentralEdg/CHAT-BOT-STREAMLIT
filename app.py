@@ -34,6 +34,13 @@ def try_load_local_or_upload(filename: str, uploaded_file):
         return load_csv(filename)
     return pd.DataFrame()
 
+
+
+def limpiar_pregunta(texto):
+    # Elimina números iniciales tipo "33.", "34 -", "12–"
+    return re.sub(r'^\s*\d+\s*[\.\-\–]\s*', '', texto).strip()
+
+
 def canon(text: str) -> str:
     """
     Normaliza texto para comparar sin tildes, sin dobles espacios y sin diferencias de mayúsculas.
@@ -236,21 +243,107 @@ if user_input:
                 "Asegúrate de que `Preguntas_Secciones_Publico.csv` tenga la columna `Seccion`."
             )
 
-    # ============================================
+    # ===============================
     # Caso 2: Selección de sección o pregunta
-    # ============================================
+    # ===============================
     else:
         seleccion = user_input.strip()
         handled = False
 
-        # ==========================================================
-        # Si ya hay una sección activa, interpreta el número según contexto
-        # ==========================================================
+        # ------------------------------------------------------------------
+        # 0) MENÚ PRINCIPAL: si NO hay sección activa, un dígito => SECCIÓN
+        # ------------------------------------------------------------------
+        if not st.session_state.get("current_section"):
+            secciones = get_sections_sorted(preguntas)
+
+            if seleccion.isdigit():
+                idx = int(seleccion)
+
+                # Opción "Hacer una pregunta concreta" (= última + 1)
+                if idx == len(secciones) + 1:
+                    # Limpia cualquier rastro de filtros/selecciones anteriores
+                    for k in [
+                        "current_questions", "current_question", "current_question_text",
+                        "filter_mode", "awaiting_filter_value", "current_filters",
+                        "padecimientos_list", "awaiting", "last_table_payload",
+                        "estados_list", "generos_list", "awaiting_llm_question"
+                    ]:
+                        st.session_state.pop(k, None)
+
+                    with st.chat_message("assistant"):
+                        st.markdown(
+                            "Claro, puedes hacerme una pregunta sobre los resultados del estudio.\n\n"
+                            "**Ejemplos:**\n"
+                            "- ¿Qué dispositivo usan más las mujeres?\n"
+                            "- ¿Cuál es el porcentaje de personas con diabetes que usan smartwatch?\n"
+                            "- ¿Qué canal digital prefieren los adultos mayores?\n\n"
+                            "**Escribe tu pregunta a continuación:**"
+                        )
+                    st.session_state["awaiting_llm_question"] = True
+                    handled = True
+                    st.stop()
+
+                # Selección de sección válida
+                elif 1 <= idx <= len(secciones):
+                    seccion = secciones[idx - 1]
+
+                    # 🔄 Limpia SIEMPRE todo el estado de filtros y selección
+                    for k in [
+                        "current_question", "current_question_text", "filter_mode",
+                        "awaiting_filter_value", "current_filters", "padecimientos_list",
+                        "awaiting", "awaiting_llm_question", "last_table_payload",
+                        "estados_list", "generos_list"
+                    ]:
+                        st.session_state.pop(k, None)
+
+                    # Guarda sección actual y construye lista de preguntas
+                    st.session_state["current_section"] = seccion
+                    preguntas_seccion = preguntas[preguntas["Seccion"] == seccion].copy()
+                    if "NO_Pregunta" in preguntas_seccion.columns:
+                        preguntas_seccion = preguntas_seccion.sort_values("NO_Pregunta")
+
+                    st.session_state["current_questions"] = [
+                        (
+                            int(row["NO_Pregunta"]) if "NO_Pregunta" in row and pd.notna(row["NO_Pregunta"]) else None,
+                            str(row["Pregunta"]),
+                        )
+                        for _, row in preguntas_seccion.iterrows()
+                    ]
+
+                    # Muestra el listado de preguntas de la sección
+                    if st.session_state["current_questions"]:
+                        lines = []
+                        for i, (no_p, texto) in enumerate(st.session_state["current_questions"], start=1):
+                            label = f"{no_p}. " if no_p is not None else ""
+                            lines.append(f"{i}. {label}{texto}")
+                        lista_preguntas = "\n".join(lines)
+
+                        response = (
+                            f"### 📊 Preguntas disponibles en **{seccion}**:\n\n"
+                            f"{lista_preguntas}\n\n"
+                            f"{len(st.session_state['current_questions'])+1}. 💬 Hacer una pregunta concreta\n"
+                            f"{len(st.session_state['current_questions'])+2}. 🔙 Volver al menú anterior\n\n"
+                            f"_Selecciona una opción escribiendo su número (p. ej. `2`)._"
+                        )
+                    else:
+                        response = f"No se encontraron preguntas para la sección **{seccion}**."
+
+                    with st.chat_message("assistant"):
+                        st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    st.stop()
+
+            # Si no digitó número en menú principal, deja seguir (puede ser texto/LLM)
+            # pero no marques handled aquí.
+
+        # ------------------------------------------------------------------
+        # 1) YA HAY SECCIÓN ACTIVA: número => PREGUNTA / ACCIÓN / FILTROS
+        # ------------------------------------------------------------------
         if st.session_state.get("current_section") and st.session_state.get("current_questions"):
 
-            # Si venimos de mostrar resultados → estamos esperando opción del menú post-resultados
-            if st.session_state.get("awaiting") == "post_results_menu" and user_input.strip().isdigit():
-                idx = int(user_input.strip())
+            # Si venimos del menú post-resultados
+            if st.session_state.get("awaiting") == "post_results_menu" and seleccion.isdigit():
+                idx = int(seleccion)
 
                 # 1) Volver al listado de preguntas
                 if idx == 1:
@@ -265,14 +358,14 @@ if user_input:
 
                     st.session_state["current_questions"] = [
                         (
-                            int(row["NO_Pregunta"]) if pd.notna(row["NO_Pregunta"]) else None,
+                            int(row["NO_Pregunta"]) if "NO_Pregunta" in row and pd.notna(row["NO_Pregunta"]) else None,
                             str(row["Pregunta"]),
                         )
                         for _, row in preguntas_seccion.iterrows()
                     ]
 
                     qs = st.session_state["current_questions"]
-                    lines = [f"{i}. {texto}" for i, (_, texto) in enumerate(qs, start=1)]
+                    lines = [f"{i}. {limpiar_pregunta(texto)}" for i, (_, texto) in enumerate(qs, start=1)]
                     lines.append(f"{len(lines)+1}. 💬 Hacer una pregunta concreta")
                     lines.append(f"{len(lines)+2}. 🔙 Volver al menú anterior")
                     lista_preguntas = "\n".join(lines)
@@ -304,8 +397,7 @@ if user_input:
                         st.markdown(response)
                     st.session_state.messages.append({"role": "assistant", "content": response})
                     st.session_state["awaiting"] = "filter_padecimiento"
-                    st.stop()  # 🔥 Detener flujo aquí
-
+                    st.stop()
 
                 # 4) Filtrar por Estado
                 elif idx == 4 and "Estado" in demograficos.columns:
@@ -323,8 +415,7 @@ if user_input:
                         st.markdown(response)
                     st.session_state.messages.append({"role": "assistant", "content": response})
                     st.session_state["awaiting"] = "filter_estado"
-                    st.stop()  # 🔥 Detener flujo aquí
-
+                    st.stop()
 
                 # 5) Filtrar por Género
                 elif idx == 5 and "Genero" in demograficos.columns:
@@ -344,13 +435,9 @@ if user_input:
                     st.session_state["awaiting"] = "filter_genero"
                     st.stop()
 
-                # (aquí podrías añadir Estado y Género igual que el 3)
-
-            # ==========================================================
-            # Si estamos esperando elección de padecimiento
-            # ==========================================================
-            elif st.session_state.get("awaiting") == "filter_padecimiento" and user_input.strip().isdigit():
-                idx = int(user_input.strip())
+            # Elección de padecimiento (tras listar)
+            elif st.session_state.get("awaiting") == "filter_padecimiento" and seleccion.isdigit():
+                idx = int(seleccion)
                 padecimientos_list = st.session_state.get("padecimientos_list", [])
                 if 1 <= idx <= len(padecimientos_list):
                     padecimiento_sel = padecimientos_list[idx - 1]
@@ -402,26 +489,21 @@ if user_input:
                     st.session_state["awaiting"] = "post_results_menu"
                     st.stop()
 
-            # ==========================================================
-            # Si estamos en listado de preguntas (sin resultado aún)
-            # ==========================================================
+            # Listado de preguntas (sin resultado aún)
             else:
                 qs = st.session_state["current_questions"]
                 n = len(qs)
 
-                if user_input.strip().isdigit():
-                    idx = int(user_input.strip())
+                if seleccion.isdigit():
+                    idx = int(seleccion)
 
                     # --- Volver al menú principal ---
                     volver_idx = n + 2
                     if idx == volver_idx:
                         for key in [
-                            "current_section",
-                            "current_questions",
-                            "current_question",
-                            "current_question_text",
-                            "padecimientos_list",
-                            "awaiting",
+                            "current_section", "current_questions", "current_question",
+                            "current_question_text", "padecimientos_list", "awaiting",
+                            "estados_list", "generos_list", "last_table_payload"
                         ]:
                             st.session_state.pop(key, None)
 
@@ -437,6 +519,20 @@ if user_input:
                         with st.chat_message("assistant"):
                             st.markdown(response)
                         st.session_state.messages.append({"role": "assistant", "content": response})
+                        st.stop()
+
+                    # --- Hacer una pregunta concreta dentro de la sección ---
+                    if idx == n + 1:
+                        for k in [
+                            "current_question", "current_question_text", "filter_mode",
+                            "awaiting_filter_value", "current_filters", "padecimientos_list",
+                            "awaiting", "last_table_payload"
+                        ]:
+                            st.session_state.pop(k, None)
+
+                        with st.chat_message("assistant"):
+                            st.markdown("Perfecto. **Escribe tu pregunta concreta** sobre esta sección o el estudio.")
+                        st.session_state["awaiting_llm_question"] = True
                         st.stop()
 
                     # --- Elegir pregunta ---
@@ -485,27 +581,39 @@ if user_input:
                         st.session_state.messages.append({"role": "assistant", "content": response})
                         st.stop()
 
+        # ------------------------------------------------------------------
+        # 2) Si NO hubo sección ni pregunta resuelta, pasa al LLM (si corresponde)
+        # ------------------------------------------------------------------
+        if not handled and agent is not None:
+            instruct = ChatPromptTemplate.from_template(
+                """
+                Eres un analista de investigación del estudio "Paciente Digital 2025".
+                Tu objetivo es interpretar, comparar y contextualizar resultados de encuestas.
+                Responde con claridad, pasos reproducibles y, cuando corresponda, incluye porcentajes o totales.
+                Describe qué columnas del DataFrame usas, qué filtros aplicas y cómo obtienes las conclusiones.
+                Si la pregunta del usuario no es clara o no hay datos suficientes, pide más contexto educadamente.
 
-        # ==========================================================
-        # Si no hay sección activa: selección de sección
-        # ==========================================================
-        secciones = get_sections_sorted(preguntas)
-        seccion = None
+                Pregunta del usuario: {q}
+                """
+            )
+            try:
+                full_q = instruct.format(q=user_input)
+                result = agent.invoke({"input": full_q})
+                response = result.get("output", str(result)) if isinstance(result, dict) else str(result)
+            except Exception as e:
+                if "Could not parse LLM output" in str(e):
+                    response = (
+                        "⚠️ No pude interpretar tu pregunta. "
+                        "Por favor sé más específico o intenta algo como: "
+                        "`porcentaje por género en la pregunta 26`."
+                    )
+                else:
+                    response = f"Ocurrió un error al analizar la pregunta: {e}"
 
-        if seleccion.isdigit():
-            num = int(seleccion)
-            if 1 <= num <= len(secciones):
-                seccion = secciones[num - 1]
-            elif num == len(secciones) + 1:
-                seccion = "Hacer una pregunta concreta"
-            else:
-                response = "Por favor, elige un número válido de la lista de secciones."
-                handled = True
-        else:
-            canon_map = {canon(s): s for s in secciones}
-            sel_norm = canon(seleccion)
-            if sel_norm in canon_map:
-                seccion = canon_map[sel_norm]
+            with st.chat_message("assistant"):
+                st.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
+
 
         # ==========================================================
         # Caso 3: Hacer una pregunta concreta (usa el LLM)
@@ -570,7 +678,7 @@ if user_input:
         # ==========================================================
         # Manejar opciones después de una respuesta del LLM
         # ==========================================================
-        if not st.session_state.get("awaiting") and user_input.strip().isdigit():
+        if st.session_state.get("awaiting") is None and user_input.strip().isdigit():
             opcion = int(user_input.strip())
 
             # --- Opción 1: Volver al menú principal ---
@@ -610,12 +718,68 @@ if user_input:
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 st.stop()
 
-            # --- Opciones 3, 4 y 5 (filtros aún no implementados) ---
-            elif opcion in [3, 4, 5]:
-                response = (
-                    "⚙️ Funcionalidad de filtros próximamente disponible.\n"
-                    "Por ahora, puedes volver al menú principal o hacer otra pregunta concreta."
-                )
+            # --- Opción 3: Filtrar por Padecimiento ---
+            elif opcion == 3:
+                if "Padecimiento Homologado" not in padecimientos.columns:
+                    response = "⚠️ No hay datos de padecimientos cargados."
+                else:
+                    st.session_state["awaiting"] = "filter_padecimiento"
+                    padecimientos_list = sorted(padecimientos["Padecimiento Homologado"].dropna().unique())
+                    st.session_state["padecimientos_list"] = padecimientos_list
+
+                    lista_pads = "\n".join([f"{i+1}. {p}" for i, p in enumerate(padecimientos_list)])
+
+                    response = (
+                        "### 🩺 Filtrar por Padecimiento\n\n"
+                        "Selecciona uno de los siguientes padecimientos:\n\n"
+                        f"{lista_pads}\n\n"
+                        "_Escribe el número correspondiente._"
+                    )
+
+                with st.chat_message("assistant"):
+                    st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.stop()
+
+            # --- Opción 4: Filtrar por Estado ---
+            elif opcion == 4:
+                if "Estado" not in demograficos.columns:
+                    response = "⚠️ No hay información de Estados en el dataset."
+                else:
+                    st.session_state["awaiting"] = "filter_estado"
+                    estados_list = sorted(demograficos["Estado"].dropna().unique())
+                    st.session_state["estados_list"] = estados_list
+
+                    lista_est = "\n".join([f"{i+1}. {e}" for i, e in enumerate(estados_list)])
+
+                    response = (
+                        "### 🗺️ Filtrar por Estado\n\n"
+                        f"{lista_est}\n\n"
+                        "_Escribe el número correspondiente._"
+                    )
+
+                with st.chat_message("assistant"):
+                    st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.stop()
+
+            # --- Opción 5: Filtrar por Género ---
+            elif opcion == 5:
+                if "Genero" not in demograficos.columns:
+                    response = "⚠️ No hay datos de género cargados."
+                else:
+                    st.session_state["awaiting"] = "filter_genero"
+                    generos_list = sorted(demograficos["Genero"].dropna().unique())
+                    st.session_state["generos_list"] = generos_list
+
+                    lista_gen = "\n".join([f"{i+1}. {g}" for i, g in enumerate(generos_list)])
+
+                    response = (
+                        "### 🚻 Filtrar por Género\n\n"
+                        f"{lista_gen}\n\n"
+                        "_Escribe el número del género._"
+                    )
+
                 with st.chat_message("assistant"):
                     st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
